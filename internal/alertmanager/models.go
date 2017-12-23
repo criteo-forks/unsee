@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"crypto/tls"
 	"fmt"
 	"path"
 	"sort"
@@ -29,9 +30,10 @@ type alertmanagerMetrics struct {
 
 // Alertmanager represents Alertmanager upstream instance
 type Alertmanager struct {
-	URI            string        `json:"uri"`
-	RequestTimeout time.Duration `json:"timeout"`
-	Name           string        `json:"name"`
+	URI            string              `json:"uri"`
+	RequestTimeout time.Duration       `json:"timeout"`
+	TLSConfig      transport.TLSConfig `json:"tls"`
+	Name           string              `json:"name"`
 	// whenever this instance should be proxied
 	ProxyRequests bool
 	// lock protects data access while updating
@@ -55,8 +57,15 @@ func (am *Alertmanager) detectVersion() string {
 		log.Errorf("Failed to join url '%s' and path 'api/v1/status': %s", am.URI, err)
 		return defaultVersion
 	}
+
 	ver := alertmanagerVersion{}
-	err = transport.ReadJSON(url, am.RequestTimeout, &ver)
+	tlsConfig := tls.Config{}
+	err = transport.PatchTLSConfig(&tlsConfig, am.TLSConfig)
+	if err != nil {
+		log.Errorf("Failed to configure TLS options: %s", err)
+		return defaultVersion
+	}
+	err = transport.ReadJSON(url, am.RequestTimeout, &tlsConfig, &ver)
 	if err != nil {
 		log.Errorf("[%s] %s request failed: %s", am.Name, url, err.Error())
 		return defaultVersion
@@ -92,7 +101,7 @@ func (am *Alertmanager) pullSilences(version string) error {
 	}
 
 	start := time.Now()
-	silences, err := mapper.GetSilences(am.URI, am.RequestTimeout)
+	silences, err := mapper.GetSilences(am.URI, am.RequestTimeout, am.TLSConfig)
 	if err != nil {
 		return err
 	}
@@ -135,7 +144,7 @@ func (am *Alertmanager) pullAlerts(version string) error {
 	}
 
 	start := time.Now()
-	groups, err := mapper.GetAlerts(am.URI, am.RequestTimeout)
+	groups, err := mapper.GetAlerts(am.URI, am.RequestTimeout, am.TLSConfig)
 	if err != nil {
 		return err
 	}

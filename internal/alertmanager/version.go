@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"crypto/tls"
 	"time"
 
 	"github.com/cloudflare/unsee/internal/transport"
@@ -20,7 +21,7 @@ type alertmanagerVersion struct {
 }
 
 // GetVersion returns version information of the remote Alertmanager endpoint
-func GetVersion(uri string, timeout time.Duration) string {
+func GetVersion(uri string, timeout time.Duration, tlsOptions transport.TLSConfig) string {
 	// if everything fails assume Alertmanager is at latest possible version
 	defaultVersion := "999.0.0"
 
@@ -30,7 +31,15 @@ func GetVersion(uri string, timeout time.Duration) string {
 		return defaultVersion
 	}
 	ver := alertmanagerVersion{}
-	err = transport.ReadJSON(url, timeout, &ver)
+
+	tlsConfig := tls.Config{}
+	err = transport.PatchTLSConfig(&tlsConfig, tlsOptions)
+	if err != nil {
+		log.Errorf("Failed to configure TLS options: %s", err)
+		return defaultVersion
+	}
+
+	err = transport.ReadJSON(url, timeout, &tlsConfig, &ver)
 	if err != nil {
 		log.Errorf("%s request failed: %s", url, err.Error())
 		return defaultVersion

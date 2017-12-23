@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cloudflare/unsee/internal/models"
+	"github.com/cloudflare/unsee/internal/transport"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -92,5 +93,14 @@ func WithProxy(proxied bool) Option {
 func WithRequestTimeout(timeout time.Duration) Option {
 	return func(am *Alertmanager) {
 		am.RequestTimeout = timeout
+	}
+}
+
+// WithTLSConfig option can be passed to NewAlertmanager in order to set
+// custom options for the TLS handling when sending requests to Alertmanager
+// upstream
+func WithTLSConfig(tlsConfig transport.TLSConfig) Option {
+	return func(am *Alertmanager) {
+		am.TLSConfig = tlsConfig
 	}
 }

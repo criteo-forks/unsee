@@ -11,6 +11,7 @@ import (
 	"github.com/cloudflare/unsee/internal/config"
 	"github.com/cloudflare/unsee/internal/models"
 	"github.com/cloudflare/unsee/internal/transform"
+	"github.com/cloudflare/unsee/internal/transport"
 
 	"github.com/DeanThompson/ginpprof"
 	"github.com/gin-contrib/gzip"
@@ -60,7 +61,14 @@ func setupRouter(router *gin.Engine) {
 
 func setupUpstreams() {
 	for _, s := range config.Config.Alertmanager.Servers {
-		am := alertmanager.NewAlertmanager(s.Name, s.URI, alertmanager.WithRequestTimeout(s.Timeout), alertmanager.WithProxy(s.Proxy))
+		tlsConfig := transport.TLSConfig{CAPath: s.TLS.CA, CertPath: s.TLS.Cert, KeyPath: s.TLS.Key}
+		am := alertmanager.NewAlertmanager(
+			s.Name,
+			s.URI,
+			alertmanager.WithRequestTimeout(s.Timeout),
+			alertmanager.WithProxy(s.Proxy),
+			alertmanager.WithTLSConfig(tlsConfig),
+		)
 		err := alertmanager.RegisterAlertmanager(am)
 		if err != nil {
 			log.Fatalf("Failed to configure Alertmanager '%s' with URI '%s': %s", s.Name, s.URI, err)

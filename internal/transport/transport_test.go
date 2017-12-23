@@ -1,7 +1,11 @@
 package transport_test
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -9,46 +13,52 @@ import (
 	"github.com/cloudflare/unsee/internal/transport"
 
 	log "github.com/sirupsen/logrus"
-	httpmock "gopkg.in/jarcoal/httpmock.v1"
 )
 
-type transportTest struct {
-	uri     string
-	timeout time.Duration
-	failed  bool
+type httpTransportTest struct {
+	useTLS    bool
+	timeout   time.Duration
+	tlsConfig transport.TLSConfig
+	failed    bool
 }
 
-var transportTests = []transportTest{
-	transportTest{
-		uri: "http://localhost/status",
+var httpTransportTests = []httpTransportTest{
+	httpTransportTest{},
+	httpTransportTest{
+		useTLS: true,
 	},
-	transportTest{
-		uri:    "http://localhost/404",
+	httpTransportTest{
+		useTLS: true,
+		tlsConfig: transport.TLSConfig{
+			CAPath: "/non-existing-path/ca.pem",
+		},
 		failed: true,
 	},
-	transportTest{
-		uri:    "http://localhost/invalid",
+	httpTransportTest{
+		useTLS: true,
+		tlsConfig: transport.TLSConfig{
+			CertPath: "/non-existing-path/cert.pem",
+			KeyPath:  "/non-existing-path/key.pem",
+		},
 		failed: true,
 	},
-	transportTest{
-		uri: "https://localhost/status",
-	},
-	transportTest{
-		uri:    "https://localhost/404",
-		failed: true,
-	},
-	transportTest{
-		uri:    "https://localhost/invalid",
-		failed: true,
-	},
-	transportTest{
+}
+
+type fileTransportTest struct {
+	uri     string
+	failed  bool
+	timeout time.Duration
+}
+
+var fileTransportTests = []fileTransportTest{
+	fileTransportTest{
 		uri: fmt.Sprintf("file://%s", mock.GetAbsoluteMockPath("status", mock.ListAllMocks()[0])),
 	},
-	transportTest{
+	fileTransportTest{
 		uri:    "file:///non-existing-file.abcdef",
 		failed: true,
 	},
-	transportTest{
+	fileTransportTest{
 		uri:    "file://transport.go",
 		failed: true,
 	},
@@ -61,28 +71,50 @@ type mockStatus struct {
 	no      bool
 }
 
-func TestFileReader(t *testing.T) {
+func TestHTTPReader(t *testing.T) {
 	log.SetLevel(log.ErrorLevel)
-	httpmock.Activate()
-	defer httpmock.DeactivateAndReset()
-	mockJSON := `{
-			"response": "success",
-			"integer": 123,
-			"yes": true,
-			"no": false
-		}`
-	httpmock.RegisterResponder("GET", "http://localhost/status", httpmock.NewStringResponder(200, mockJSON))
-	httpmock.RegisterResponder("GET", "http://localhost/404", httpmock.NewStringResponder(404, "404"))
-	httpmock.RegisterResponder("GET", "http://localhost/invalid", httpmock.NewStringResponder(200, "bad json}{}"))
-	httpmock.RegisterResponder("GET", "https://localhost/status", httpmock.NewStringResponder(200, mockJSON))
-	httpmock.RegisterResponder("GET", "https://localhost/404", httpmock.NewStringResponder(404, "404"))
-	httpmock.RegisterResponder("GET", "https://localhost/invalid", httpmock.NewStringResponder(200, "bad json}{}"))
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"status": "success", "integer": 123, "yes": true, "no": false}`)
+	}
+	plainTS := httptest.NewServer(http.HandlerFunc(handler))
+	defer plainTS.Close()
 
-	for _, testCase := range transportTests {
-		r := mockStatus{}
-		err := transport.ReadJSON(testCase.uri, testCase.timeout, &r)
+	tlsTS := httptest.NewTLSServer(http.HandlerFunc(handler))
+	defer tlsTS.Close()
+	caPool := x509.NewCertPool()
+	caPool.AddCert(tlsTS.Certificate())
+
+	for _, testCase := range httpTransportTests {
+		var uri string
+		if testCase.useTLS {
+			uri = tlsTS.URL
+		} else {
+			uri = plainTS.URL
+		}
+
+		tlsConfig := tls.Config{RootCAs: caPool}
+		err := transport.PatchTLSConfig(&tlsConfig, testCase.tlsConfig)
 		if (err != nil) != testCase.failed {
-			t.Errorf("[%s] Expected failure: %v, Read() failed: %v, error: %s", testCase.uri, testCase.failed, (err != nil), err)
+			t.Errorf("[%v] Unexpected PatchTLSConfig() result, failure=%v, expected=%v, error: %s", testCase, (err != nil), testCase.failed, err)
+		}
+
+		if err == nil {
+			r := mockStatus{}
+			err = transport.ReadJSON(uri, testCase.timeout, &tlsConfig, &r)
+			if (err != nil) != testCase.failed {
+				t.Errorf("[%v] Unexpected ReadJSON() result, failure=%v, expected=%v, error: %s", testCase, (err != nil), testCase.failed, err)
+			}
+		}
+	}
+}
+
+func TestFileReader(t *testing.T) {
+	log.SetLevel(log.PanicLevel)
+	for _, testCase := range fileTransportTests {
+		r := mockStatus{}
+		err := transport.ReadJSON(testCase.uri, testCase.timeout, nil, &r)
+		if (err != nil) != testCase.failed {
+			t.Errorf("[%v] Unexpected result, failure=%v, expected=%v, error: %s", testCase, (err != nil), testCase.failed, err)
 		}
 	}
 }

@@ -5,6 +5,7 @@
 package v05
 
 import (
+	"crypto/tls"
 	"errors"
 	"time"
 
@@ -47,7 +48,7 @@ func (m SilenceMapper) IsSupported(version string) bool {
 
 // GetSilences will make a request to Alertmanager API and parse the response
 // It will only return silences or error (if any)
-func (m SilenceMapper) GetSilences(uri string, timeout time.Duration) ([]models.Silence, error) {
+func (m SilenceMapper) GetSilences(uri string, timeout time.Duration, tlsOptions transport.TLSConfig) ([]models.Silence, error) {
 	silences := []models.Silence{}
 	resp := silenceAPISchema{}
 
@@ -56,7 +57,12 @@ func (m SilenceMapper) GetSilences(uri string, timeout time.Duration) ([]models.
 		return silences, err
 	}
 
-	err = transport.ReadJSON(url, timeout, &resp)
+	tlsConfig := tls.Config{}
+	err = transport.PatchTLSConfig(&tlsConfig, tlsOptions)
+	if err != nil {
+		return silences, err
+	}
+	err = transport.ReadJSON(url, timeout, &tlsConfig, &resp)
 	if err != nil {
 		return silences, err
 	}

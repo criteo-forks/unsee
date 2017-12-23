@@ -5,6 +5,7 @@
 package v05
 
 import (
+	"crypto/tls"
 	"errors"
 	"sort"
 	"time"
@@ -59,7 +60,7 @@ func (m AlertMapper) IsSupported(version string) bool {
 
 // GetAlerts will make a request to Alertmanager API and parse the response
 // It will only return alerts or error (if any)
-func (m AlertMapper) GetAlerts(uri string, timeout time.Duration) ([]models.AlertGroup, error) {
+func (m AlertMapper) GetAlerts(uri string, timeout time.Duration, tlsOptions transport.TLSConfig) ([]models.AlertGroup, error) {
 	groups := []models.AlertGroup{}
 	receivers := map[string]alertsGroupReceiver{}
 	resp := alertsGroupsAPISchema{}
@@ -69,7 +70,12 @@ func (m AlertMapper) GetAlerts(uri string, timeout time.Duration) ([]models.Aler
 		return groups, err
 	}
 
-	err = transport.ReadJSON(url, timeout, &resp)
+	tlsConfig := tls.Config{}
+	err = transport.PatchTLSConfig(&tlsConfig, tlsOptions)
+	if err != nil {
+		return groups, err
+	}
+	err = transport.ReadJSON(url, timeout, &tlsConfig, &resp)
 	if err != nil {
 		return groups, err
 	}
