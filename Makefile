@@ -1,8 +1,8 @@
 NAME    := unsee
 VERSION := $(shell git describe --tags --always --dirty='-dev')
-GO      := GO15VENDOREXPERIMENT=1 go
-PROMU   := $(GOPATH)/bin/promu
-pkgs     = $(shell $(GO) list ./... | grep -v -E '/vendor/')
+GO    := GO15VENDOREXPERIMENT=1 go
+PROMU := $(GOPATH)/bin/promu
+pkgs   = $(shell $(GO) list ./... | grep -v -E '/vendor/')
 
 PREFIX                  ?= $(shell pwd)
 BIN_DIR                 ?= $(shell pwd)
@@ -11,7 +11,7 @@ DOCKER_IMAGE_TAG        ?= $(subst /,-,$(shell git rev-parse --abbrev-ref HEAD))
 
 # Alertmanager instance used when running locally, points to mock data
 MOCK_PATH         := $(CURDIR)/internal/mock/0.12.0
-ALERTMANAGER_URI  := "file://$(MOCK_PATH)"
+ALERTMANAGER_URI := "file://$(MOCK_PATH)"
 # Listen port when running locally
 PORT := 8080
 
@@ -29,43 +29,55 @@ endif
 
 .DEFAULT_GOAL := $(NAME)
 
-.build/deps-build-go.ok:
-	@mkdir -p .build
-	$(GO) get -u github.com/golang/dep/cmd/dep
-	$(GO) get -u github.com/jteeuwen/go-bindata/...
-	$(GO) get -u github.com/elazarl/go-bindata-assetfs/...
+.build-deps/deps-build-go.ok:
+	@mkdir -p .build-deps
+	go get -u github.com/golang/dep/cmd/dep
+	go get -u github.com/jteeuwen/go-bindata/...
+	go get -u github.com/elazarl/go-bindata-assetfs/...
 	touch $@
 
-.build/deps-lint-go.ok:
-	@mkdir -p .build
-	$(GO) get -u github.com/golang/lint/golint
+.build-deps/deps-lint-go.ok:
+	@mkdir -p .build-deps
+	go get -u github.com/golang/lint/golint
 	touch $@
 
-.build/deps-build-node.ok: package.json package-lock.json
-	@mkdir -p .build
+.build-deps/deps-build-node.ok: package.json package-lock.json
+	@mkdir -p .build-deps
 	npm install
 	touch $@
 
-.build/artifacts-bindata_assetfs.%:
-	@mkdir -p .build
-	rm -f .build/artifacts-bindata_assetfs.*
+.build-deps/artifacts-bindata_assetfs.%:
+	@mkdir -p .build-deps
+	rm -f .build-deps/artifacts-bindata_assetfs.*
 	touch $@
 
-.build/artifacts-webpack.ok: .build/deps-build-node.ok $(ASSET_SOURCES) webpack.config.js
-	@mkdir -p .build
+.build-deps/artifacts-webpack.ok: .build-deps/deps-build-node.ok $(ASSET_SOURCES) webpack.config.js
+	@mkdir -p .build-deps
 	$(CURDIR)/node_modules/.bin/webpack
 	touch $@
 
-bindata_assetfs.go: .build/deps-build-go.ok .build/artifacts-bindata_assetfs.$(GO_BINDATA_MODE) .build/vendor.ok .build/artifacts-webpack.ok
+bindata_assetfs.go: .build-deps/deps-build-go.ok .build-deps/artifacts-bindata_assetfs.$(GO_BINDATA_MODE) .build-deps/vendor.ok .build-deps/artifacts-webpack.ok
 	go-bindata-assetfs $(GO_BINDATA_FLAGS) -prefix assets -nometadata assets/templates/... assets/static/dist/...
 
-$(NAME): .build/deps-build-go.ok .build/vendor.ok bindata_assetfs.go $(SOURCES)
-	$(GO) build -ldflags "-X main.version=$(VERSION)"
+$(NAME): .build-deps/deps-build-go.ok .build-deps/vendor.ok bindata_assetfs.go $(SOURCES)
+	go build -ldflags "-X main.version=$(VERSION)"
 
-.build/vendor.ok: .build/deps-build-go.ok Gopkg.lock Gopkg.toml
+.build-deps/vendor.ok: .build-deps/deps-build-go.ok Gopkg.lock Gopkg.toml
 	dep ensure
 	dep prune
 	touch $@
+
+test:
+	@echo ">> running short tests"
+	@$(GO) test -short $(pkgs)
+
+format:
+	@echo ">> formatting code"
+	@$(GO) fmt $(pkgs)
+
+vet:
+	@echo ">> vetting code"
+	@$(GO) vet $(pkgs)
 
 build: promu
 	@echo ">> building binaries"
@@ -85,21 +97,21 @@ promu:
 	$(GO) get -u github.com/prometheus/promu
 
 .PHONY: vendor
-vendor: .build/deps-build-go.ok
+vendor: .build-deps/deps-build-go.ok
 	dep ensure
 	dep prune
 
 .PHONY: vendor-update
-vendor-update: .build/deps-build-go.ok
+vendor-update: .build-deps/deps-build-go.ok
 	dep ensure -update
 	dep prune
 
 .PHONY: webpack
-webpack: .build/artifacts-webpack.ok
+webpack: .build-deps/artifacts-webpack.ok
 
 .PHONY: clean
 clean:
-	rm -fr .build bindata_assetfs.go $(NAME)
+	rm -fr .build-deps bindata_assetfs.go $(NAME)
 
 .PHONY: run
 run: $(NAME)
@@ -131,11 +143,11 @@ run-docker: docker-image
 	    $(NAME):$(VERSION)
 
 .PHONY: lint-go
-lint-go: .build/deps-lint-go.ok
+lint-go: .build-deps/deps-lint-go.ok
 	golint ./... | (egrep -v "^vendor/|^bindata_assetfs.go" || true)
 
 .PHONY: lint-js
-lint-js: .build/deps-build-node.ok
+lint-js: .build-deps/deps-build-node.ok
 	$(CURDIR)/node_modules/.bin/eslint --quiet assets/static/*.js
 
 .PHONY: lint
@@ -143,7 +155,7 @@ lint: lint-go lint-js
 
 # Creates mock bindata_assetfs.go with source assets rather than webpack generated ones
 .PHONY: mock-assets
-mock-assets: .build/deps-build-go.ok
+mock-assets: .build-deps/deps-build-go.ok
 	mkdir -p $(CURDIR)/assets/static/dist/templates
 	cp $(CURDIR)/assets/static/*.* $(CURDIR)/assets/static/dist/
 	touch $(CURDIR)/assets/static/dist/templates/loader_unsee.html
@@ -151,14 +163,14 @@ mock-assets: .build/deps-build-go.ok
 	touch $(CURDIR)/assets/static/dist/templates/loader_help.html
 	go-bindata-assetfs -prefix assets -nometadata assets/templates/... assets/static/dist/...
 	# force assets rebuild on next make run
-	rm -f .build/bindata_assetfs.*
+	rm -f .build-deps/bindata_assetfs.*
 
 .PHONY: test-go
-test-go: .build/vendor.ok
-	$(GO) test -bench=. -cover `go list ./... | grep -v /vendor/`
+test-go: .build-deps/vendor.ok
+	go test -bench=. -cover `go list ./... | grep -v /vendor/`
 
 .PHONY: test-js
-test-js: .build/deps-build-node.ok
+test-js: .build-deps/deps-build-node.ok
 	npm test
 
 .PHONY: test

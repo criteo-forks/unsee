@@ -46,3 +46,23 @@ jobs:
           packages:
             - docker-ce
       script: make docker-image
+
+    - stage: Build binaries
+      sudo: true
+      language: go
+      go: 1.9.2
+      script:
+      - make
+      - make promu
+      - promu crossbuild
+      - promu crossbuild tarballs
+      - promu checksum .tarballs
+      deploy:
+        provider: releases
+        api_key:
+          secure:      NHEa5MFWwr79IskQQv3FHoWgRPB5WdEXlxo0iUcFrx/mNPaWQBlAcnP6osSpJIh+i63dff66jrf7ZyHSzYA6anlcZA881QWjuPgrBmPzoSssztERplqS41dw0FDthShhnkBDnu3zutaacnZMXW2CCUfuImOxAQjjU3000+wbzBbI3rwppGU00aIO14yN5N1iShomlmH/0YLbXe6jW/j52OX3fQbUhw7pN94wGjfeWfwOwb94RFOF1a1mCG1ULNGRsUU2ZB7QwyfYJLDsygq76KNqEHVUERIQ51dY+daB4J2ee8Hd4vqcJ24lZQkEegyGTyhAGt7IFFxA8g+MDnU+qq/NKb6D7skZslQDgtGOK6+j+IGF12xElKfyTZkzn8MqmI8j3QzqxCviPrwi9cnb6BvSWHoniGUGFN2LC7+VPojuaKEEglhbSaa9a/bsGsWTGeK5HiWdnu22aQFEm/Vt5DsDX7RXAbusPjFLbeEFVl5YTv/AAvdEuqBlyJrgTum3bgySNDNq2DE37priG1WBnJhfNz7XbKUk7WvGB4p6uAIZpwEDgE3m0P5IOw6pg9vv0GeGuHxm/RYFDDyqVym1LPTeyXRhsMQOXpjcy2Frf8uFKWp9b1X7mhKUOIU1uWS1Gtf7er8looJNaIQKEpiuxks3b9ix0dNGKTZm46deKZQ=
+        file_glob: true
+        file: ".tarballs/*"
+        skip_cleanup: true
+        on:
+      tags: true
